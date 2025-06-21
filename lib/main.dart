@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'l10n/app_localizations.dart';
 import 'screens/main_layout.dart';
 
 void main() async {
@@ -28,29 +28,18 @@ class NiShaApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       locale: localeProvider.locale,
-      supportedLocales: const [
-        Locale('en'),
-        Locale('ar'),
-      ],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
-      theme: ThemeData.dark().copyWith(
-        useMaterial3: true,
-        colorScheme: ColorScheme.dark(
-          primary: const Color(0xFF004D40),
-          secondary: const Color(0xFFFFD700),
-          surface: const Color(0xFF1E1E1E),
-          background: const Color(0xFF121212),
-          error: const Color(0xFFCF6679),
+      theme: ThemeData.dark(useMaterial3: true).copyWith(
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF4A148C),
+          secondary: Color(0xFFFFD700),
+          surface: Color(0xFF1E1E1E),
+          error: Color(0xFFCF6679),
           onPrimary: Colors.white,
           onSecondary: Colors.black,
           onSurface: Colors.white,
-          onBackground: Colors.white,
           onError: Colors.black,
         ),
         scaffoldBackgroundColor: const Color(0xFF121212),
@@ -62,7 +51,7 @@ class NiShaApp extends StatelessWidget {
           ),
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF004D40),
+          backgroundColor: Color(0xFF4A148C),
           elevation: 0,
           centerTitle: true,
           iconTheme: IconThemeData(color: Colors.white),
@@ -99,7 +88,7 @@ class NiShaApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF004D40),
+            backgroundColor: const Color(0xFF4A148C),
             foregroundColor: Colors.white,
             elevation: 2,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),

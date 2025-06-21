@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import '../l10n/app_localizations.dart';
 import 'dashboard_screen.dart';
 import 'settings_screen.dart';
 
@@ -13,11 +13,18 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<ScaffoldState> _notificationScaffoldKey = GlobalKey<ScaffoldState>();
 
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  void _toggleNotificationPanel() {
+    if (_notificationScaffoldKey.currentState != null) {
+      _notificationScaffoldKey.currentState!.openEndDrawer();
+    }
   }
 
   @override
@@ -103,11 +110,55 @@ class _MainLayoutState extends State<MainLayout> {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications),
-            onPressed: () {
-              // Handle notifications
-            },
+            onPressed: _toggleNotificationPanel,
           ),
         ],
+      ),
+      endDrawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.notifications, size: 40, color: Colors.white),
+                  const SizedBox(height: 10),
+                  Text(
+                    AppLocalizations.of(context)!.notifications,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.notifications_active),
+              title: Text(AppLocalizations.of(context)!.enableNotifications),
+              trailing: Switch(
+                value: true,
+                onChanged: (value) {
+                  // Handle notification toggle
+                },
+              ),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.alarm),
+              title: Text(AppLocalizations.of(context)!.smartAlarm),
+              subtitle: Text('7:00 AM'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bedtime),
+              title: Text(AppLocalizations.of(context)!.sleepAnalysis),
+              subtitle: Text('Last night: 7.5 hours'),
+            ),
+          ],
+        ),
       ),
       body: IndexedStack(
         index: _selectedIndex,

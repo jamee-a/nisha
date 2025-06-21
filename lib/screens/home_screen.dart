@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import '../l10n/app_localizations.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'bluetooth_connection_page.dart';
 
