@@ -100,8 +100,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Icons.bluetooth_connected,
                     color: Theme.of(context).colorScheme.secondary,
                   ),
-                  title: Text(_connectedDevice!.name.isNotEmpty
-                      ? _connectedDevice!.name
+                  title: Text(_connectedDevice!.platformName.isNotEmpty
+                      ? _connectedDevice!.platformName
                       : 'Unknown Device'),
                   subtitle: Text(
                     AppLocalizations.of(context)!.connected,
@@ -121,7 +121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Column(
                   children: [
                     ListTile(
-                      leading: Icon(
+                      leading: const Icon(
                         Icons.bluetooth,
                         color: Colors.grey,
                       ),
@@ -147,8 +147,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           return ListTile(
                             leading: const Icon(Icons.bluetooth_searching),
                             title: Text(
-                              result.device.name.isNotEmpty
-                                  ? result.device.name
+                              result.device.platformName.isNotEmpty
+                                  ? result.device.platformName
                                   : 'Unknown Device',
                             ),
                             subtitle: Text(result.device.id.id),

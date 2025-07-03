@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/main_layout.dart';
+import 'models/health_data.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,8 +12,15 @@ void main() async {
   final localeCode = prefs.getString('locale') ?? 'en';
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => LocaleProvider(Locale(localeCode)),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => LocaleProvider(Locale(localeCode)),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => HealthData(),
+        ),
+      ],
       child: const NiShaApp(),
     ),
   );
@@ -27,6 +35,7 @@ class NiShaApp extends StatelessWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: GlobalKey<ScaffoldMessengerState>(),
       locale: localeProvider.locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,

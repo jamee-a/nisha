@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
+import 'package:provider/provider.dart';
+import '../models/health_data.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -22,6 +24,8 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildSleepAnalysisCard(BuildContext context) {
+    final healthData = Provider.of<HealthData>(context);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -40,13 +44,19 @@ class DashboardScreen extends StatelessWidget {
                   context,
                   Icons.favorite,
                   AppLocalizations.of(context)!.heartRate,
-                  '72 BPM',
+                  healthData.heartRate != null ? '${healthData.heartRate} BPM' : '--',
                 ),
                 _buildStatItem(
                   context,
                   Icons.air,
                   AppLocalizations.of(context)!.oxygenLevel,
-                  '98%',
+                  healthData.oxygenLevel != null ? '${healthData.oxygenLevel}%' : '--',
+                ),
+                _buildStatItem(
+                  context,
+                  Icons.thermostat,
+                  'Temperature',
+                  healthData.temperature != null ? '${healthData.temperature}°C' : '--',
                 ),
               ],
             ),
