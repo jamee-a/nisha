@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'bluetooth_connection_page.dart';
 
 import 'dashboard_screen.dart';
@@ -18,13 +18,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   BluetoothDevice? connectedDevice;
+  bool _isConnected = false;
 
   @override
   void initState() {
     super.initState();
     // Check for Bluetooth connection when the page loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (connectedDevice == null) {
+      if (!_isConnected) {
         _navigateToBluetoothConnection();
       }
     });
@@ -38,9 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (result != null && result is BluetoothDevice) {
+    if (result != null && result is Map<String, dynamic>) {
       setState(() {
-        connectedDevice = result;
+        connectedDevice = result['device'] as BluetoothDevice?;
+        _isConnected = result['connected'] as bool? ?? false;
       });
     } else {
       // If no device was connected, show a message and try again
@@ -60,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context);
 
-    if (connectedDevice == null) {
+    if (!_isConnected || connectedDevice == null) {
       return Scaffold(
         appBar: AppBar(
           title: Text(localizations.appTitle),
@@ -70,11 +72,32 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('No device connected'),
+              const Icon(
+                Icons.bluetooth_disabled,
+                size: 64,
+                color: Colors.grey,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No device connected',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Please connect to a Bluetooth device to access health monitoring features',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
               const SizedBox(height: 20),
-              ElevatedButton(
+              ElevatedButton.icon(
                 onPressed: _navigateToBluetoothConnection,
-                child: const Text('Connect to Device'),
+                icon: const Icon(Icons.bluetooth),
+                label: const Text('Connect to Device'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
               ),
             ],
           ),
@@ -92,15 +115,62 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               setState(() {
                 connectedDevice = null;
+                _isConnected = false;
               });
               _navigateToBluetoothConnection();
             },
+            tooltip: 'Reconnect Device',
           ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          // Connection status card
+          Card(
+            color: Colors.green.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.bluetooth_connected,
+                    color: Colors.green,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Connected to Device',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          connectedDevice?.name ?? 'Unknown Device',
+                          style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _navigateToBluetoothConnection,
+                    tooltip: 'Reconnect',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
           _buildMenuButton(
             context,
             label: localizations.dashboard,

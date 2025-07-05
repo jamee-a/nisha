@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import '../models/health_data.dart';
 
 class BluetoothConnectionPage extends StatefulWidget {
   const BluetoothConnectionPage({Key? key}) : super(key: key);
@@ -12,33 +14,57 @@ class BluetoothConnectionPage extends StatefulWidget {
 }
 
 class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
-  final List<ScanResult> _scanResults = [];
+  final List<BluetoothDevice> _devices = [];
   bool _isScanning = false;
+  BluetoothConnection? _connection;
   BluetoothDevice? _connectedDevice;
-  BluetoothCharacteristic? _notifyChar;   // first NOTIFY characteristic we find
+  BluetoothState _bluetoothState = BluetoothState.UNKNOWN;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-    _requestPermissions();   // ask once at start
-    _checkBluetoothState(); // check bluetooth state on init
+    _requestPermissions();
+    _checkBluetoothState();
     
     // Test toast on page load
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
-        _showToast('Bluetooth page loaded successfully!', isError: false);
+        _showToast('Serial Bluetooth page loaded successfully!', isError: false);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _connection?.dispose();
+    super.dispose();
+  }
+
+  // Return connection status when navigating back
+  void _returnConnectionStatus() {
+    if (_connectedDevice != null && _connection?.isConnected == true) {
+      Navigator.pop(context, {
+        'device': _connectedDevice,
+        'connected': true,
+      });
+    } else {
+      Navigator.pop(context, null);
+    }
   }
 
   /* ──────────── Bluetooth State Check ──────────── */
   Future<void> _checkBluetoothState() async {
     try {
-      final state = await FlutterBluePlus.adapterState.first;
-      if (state == BluetoothAdapterState.off) {
-        _showToast('Bluetooth must be turned on to scan for devices', isError: true);
-      }
+      FlutterBluetoothSerial.instance.state.then((state) {
+        setState(() {
+          _bluetoothState = state;
+        });
+        
+        if (state == BluetoothState.STATE_OFF) {
+          _showToast('Bluetooth must be turned on to scan for devices', isError: true);
+        }
+      });
     } catch (e) {
       _showToast('Failed to check Bluetooth state: $e', isError: true);
     }
@@ -50,9 +76,7 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
     
     debugPrint('Showing toast: $message (isError: $isError)');
     
-    // Try multiple approaches to show the toast
     try {
-      // Method 1: Using ScaffoldMessenger.of(context)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -77,8 +101,6 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
       );
     } catch (e) {
       debugPrint('Failed to show toast with ScaffoldMessenger: $e');
-      
-      // Method 2: Simple debug print as fallback
       debugPrint('TOAST: $message');
     }
   }
@@ -87,9 +109,10 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
   Future<void> _requestPermissions() async {
     try {
       final results = await [
+        Permission.bluetooth,
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
-        Permission.location,      // required by Android for BLE scan
+        Permission.location,      // required by Android for Bluetooth scan
       ].request();
       
       // Check if any permission was denied
@@ -107,41 +130,44 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
   Future<void> _startScan() async {
     try {
       // Check Bluetooth state before scanning
-      final state = await FlutterBluePlus.adapterState.first;
-      if (state == BluetoothAdapterState.off) {
+      if (_bluetoothState != BluetoothState.STATE_ON) {
         _showToast('Bluetooth must be turned on to scan for devices', isError: true);
         return;
       }
 
       setState(() {
-        _scanResults.clear();
+        _devices.clear();
         _isScanning = true;
       });
 
       _showToast('Starting scan for Bluetooth devices...');
 
-      // Start scan, listen, stop after 10 s
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 10),
-      );
+      // Get bonded devices (already paired)
+      List<BluetoothDevice> bondedDevices = await FlutterBluetoothSerial.instance.getBondedDevices();
+      setState(() {
+        _devices.addAll(bondedDevices);
+      });
 
-      FlutterBluePlus.scanResults.listen((results) {
+      // Start discovery for new devices
+      FlutterBluetoothSerial.instance.startDiscovery().listen((result) {
         setState(() {
-          _scanResults
-            ..clear()
-            ..addAll(results);
+          // Add device if not already in list
+          if (!_devices.any((device) => device.address == result.device.address)) {
+            _devices.add(result.device);
+          }
         });
       });
 
-      // Wait until scanning flag becomes false (auto after timeout)
-      await FlutterBluePlus.isScanning.where((s) => !s).first;
+      // Stop discovery after 10 seconds
+      await Future.delayed(const Duration(seconds: 10));
+      await FlutterBluetoothSerial.instance.cancelDiscovery();
       
       if (mounted) {
         setState(() => _isScanning = false);
-        if (_scanResults.isEmpty) {
+        if (_devices.isEmpty) {
           _showToast('No Bluetooth devices found nearby', isError: true);
         } else {
-          _showToast('Found ${_scanResults.length} device(s)');
+          _showToast('Found ${_devices.length} device(s)');
         }
       }
     } catch (e) {
@@ -152,41 +178,41 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
     }
   }
 
-  /* ──────────── Connect & Discover ──────────── */
+  /* ──────────── Connect ──────────── */
   Future<void> _connectTo(BluetoothDevice device) async {
     try {
-      _showToast('Connecting to ${device.platformName.isNotEmpty ? device.platformName : 'device'}...');
+      _showToast('Connecting to ${device.name ?? 'device'}...');
       
-      await device.connect(timeout: const Duration(seconds: 10));
-      setState(() => _connectedDevice = device);
-
-      _showToast('Connected! Discovering services...');
-
-      List<BluetoothService> services = await device.discoverServices();
+      _connection = await BluetoothConnection.toAddress(device.address);
       
-      bool foundNotifyChar = false;
-      for (final s in services) {
-        for (final c in s.characteristics) {
-          if (c.properties.notify && _notifyChar == null) {
-            _notifyChar = c;
-            await c.setNotifyValue(true);
-            c.onValueReceived.listen(_onData);
-            foundNotifyChar = true;
-          }
-          // If you need to WRITE, also store c if c.properties.write
-        }
-      }
-
-      if (foundNotifyChar) {
-        _showToast('Successfully connected to ${device.platformName.isNotEmpty ? device.platformName : 'device'}');
+      if (_connection!.isConnected) {
+        _connectedDevice = device;
+        _showToast('Successfully connected to ${device.name ?? 'device'}');
+        
+        // Listen for incoming data
+        _connection!.input!.listen((Uint8List data) {
+          final incoming = String.fromCharCodes(data);
+          _showToast('📥 Received: $incoming');
+          debugPrint('📥 Received data: $incoming');
+          
+          // Process the data and update health data
+          _processReceivedData(incoming);
+        }).onDone(() {
+          _showToast('Connection closed', isError: true);
+          setState(() {
+            _connection = null;
+            _connectedDevice = null;
+          });
+        });
+        
+        setState(() {});
       } else {
-        _showToast('Connected but no notification characteristic found', isError: true);
+        _showToast('Failed to establish connection', isError: true);
       }
       
     } catch (e) {
       String errorMessage = 'Connection failed';
       
-      // Provide more specific error messages
       if (e.toString().contains('timeout')) {
         errorMessage = 'Connection timeout - device may be out of range';
       } else if (e.toString().contains('bluetooth')) {
@@ -205,11 +231,44 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
     }
   }
 
-  void _onData(List<int> data) {
-    final incoming = String.fromCharCodes(data);
-    _showToast('📥 $incoming');
-    debugPrint('📥 $incoming');
-    // …update UI / parse JSON…
+  /* ──────────── Process Received Data ──────────── */
+  void _processReceivedData(String data) {
+    try {
+      // Get the HealthData provider and update it
+      final healthData = Provider.of<HealthData>(context, listen: false);
+      healthData.parseBluetoothData(data);
+      
+      debugPrint('📥 Health data updated from Bluetooth');
+    } catch (e) {
+      debugPrint('📥 Error processing received data: $e');
+    }
+  }
+
+  /* ──────────── Send Data ──────────── */
+  Future<void> _sendData(String data) async {
+    if (_connection?.isConnected == true) {
+      try {
+        _connection!.output.add(Uint8List.fromList(data.codeUnits));
+        await _connection!.output.allSent;
+        _showToast('📤 Sent: $data');
+      } catch (e) {
+        _showToast('Failed to send data: $e', isError: true);
+      }
+    } else {
+      _showToast('Not connected to any device', isError: true);
+    }
+  }
+
+  /* ──────────── Disconnect ──────────── */
+  Future<void> _disconnect() async {
+    if (_connection?.isConnected == true) {
+      await _connection!.close();
+      setState(() {
+        _connection = null;
+        _connectedDevice = null;
+      });
+      _showToast('Disconnected');
+    }
   }
 
   /* ──────────── UI ──────────── */
@@ -217,10 +276,42 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      appBar: AppBar(title: const Text('BLE Connect')),
+      appBar: AppBar(
+        title: const Text('Serial Bluetooth'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _returnConnectionStatus,
+        ),
+        actions: [
+          if (_connection?.isConnected == true)
+            IconButton(
+              icon: const Icon(Icons.bluetooth_disabled),
+              onPressed: _disconnect,
+              tooltip: 'Disconnect',
+            ),
+        ],
+      ),
       body: Column(
         children: [
-          // Test button for toast
+          // Connection status
+          if (_connection?.isConnected == true)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: Colors.green.shade100,
+              child: Row(
+                children: [
+                  Icon(Icons.bluetooth_connected, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Connected to: ${_connectedDevice?.name ?? 'Unknown'}',
+                    style: TextStyle(color: Colors.green.shade800),
+                  ),
+                ],
+              ),
+            ),
+          
+          // Control buttons
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -246,22 +337,56 @@ class _BluetoothConnectionPageState extends State<BluetoothConnectionPage> {
               ],
             ),
           ),
+          
+          // Send data section (when connected)
+          if (_connection?.isConnected == true)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Enter message to send',
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: _sendData,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () => _sendData('Hello from Flutter!'),
+                    child: const Text('Send'),
+                  ),
+                ],
+              ),
+            ),
+          
+          // Device list
           Expanded(
             child: ListView.builder(
-              itemCount: _scanResults.length,
+              itemCount: _devices.length,
               itemBuilder: (_, i) {
-                final r = _scanResults[i];
+                final device = _devices[i];
+                final isConnected = _connectedDevice?.address == device.address;
+                
                 return Card(
                   child: ListTile(
-                    title: Text(
-                      r.device.platformName.isNotEmpty
-                          ? r.device.platformName
-                          : 'Unknown',
+                    leading: Icon(
+                      isConnected ? Icons.bluetooth_connected : Icons.bluetooth,
+                      color: isConnected ? Colors.green : Colors.grey,
                     ),
-                    subtitle: Text(r.device.remoteId.str),
+                    title: Text(device.name ?? 'Unknown Device'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(device.address),
+                        Text('Bonded: ${device.isBonded ? 'Yes' : 'No'}'),
+                      ],
+                    ),
                     trailing: ElevatedButton(
-                      onPressed: () => _connectTo(r.device),
-                      child: const Text('Connect'),
+                      onPressed: isConnected ? null : () => _connectTo(device),
+                      child: Text(isConnected ? 'Connected' : 'Connect'),
                     ),
                   ),
                 );

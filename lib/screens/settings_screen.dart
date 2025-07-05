@@ -1,10 +1,12 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../main.dart';
 import '../l10n/app_localizations.dart';
+import '../models/health_data.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -19,7 +21,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   TimeOfDay _wakeUpTime = const TimeOfDay(hour: 7, minute: 0);
   bool _isScanning = false;
   BluetoothDevice? _connectedDevice;
-  List<ScanResult> _scanResults = [];
+  List<BluetoothDevice> _devices = [];
+  BluetoothConnection? _connection;
 
   @override
   void initState() {
@@ -28,25 +31,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _checkPermissions() async {
-    await Permission.bluetooth.request();
-    await Permission.bluetoothScan.request();
-    await Permission.bluetoothConnect.request();
-    await Permission.location.request();
+    final results = await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
+    
+    // Check if any permission was denied
+    for (final result in results.entries) {
+      if (result.value.isDenied) {
+        debugPrint('${result.key.toString().split('.').last} permission is required');
+      }
+    }
   }
 
   Future<void> _startScan() async {
+    // Check permissions first
+    await _checkPermissions();
+    
     setState(() {
       _isScanning = true;
-      _scanResults = [];
+      _devices = [];
     });
 
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
-      FlutterBluePlus.scanResults.listen((results) {
+      // Get bonded devices (already paired)
+      List<BluetoothDevice> bondedDevices = await FlutterBluetoothSerial.instance.getBondedDevices();
+      setState(() {
+        _devices.addAll(bondedDevices);
+      });
+
+      // Start discovery for new devices
+      FlutterBluetoothSerial.instance.startDiscovery().listen((result) {
         setState(() {
-          _scanResults = results;
+          // Add device if not already in list
+          if (!_devices.any((device) => device.address == result.device.address)) {
+            _devices.add(result.device);
+          }
         });
       });
+
+      // Stop discovery after 4 seconds
+      await Future.delayed(const Duration(seconds: 4));
+      await FlutterBluetoothSerial.instance.cancelDiscovery();
     } catch (e) {
       debugPrint('Error scanning: $e');
     }
@@ -58,20 +86,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
     try {
-      await device.connect();
-      setState(() {
-        _connectedDevice = device;
-      });
+      _connection = await BluetoothConnection.toAddress(device.address);
+      
+      if (_connection!.isConnected) {
+        setState(() {
+          _connectedDevice = device;
+        });
+        
+        // Listen for incoming data
+        _connection!.input!.listen((Uint8List data) {
+          final incoming = String.fromCharCodes(data);
+          debugPrint('📥 Settings received: $incoming');
+          
+          // Process received data
+          _processReceivedData(incoming);
+        }).onDone(() {
+          debugPrint('Settings: Connection closed');
+          setState(() {
+            _connection = null;
+            _connectedDevice = null;
+          });
+        });
+      }
     } catch (e) {
       debugPrint('Error connecting: $e');
     }
   }
 
   Future<void> _disconnectDevice() async {
-    if (_connectedDevice != null) {
+    if (_connection?.isConnected == true) {
       try {
-        await _connectedDevice!.disconnect();
+        await _connection!.close();
         setState(() {
+          _connection = null;
           _connectedDevice = null;
         });
       } catch (e) {
@@ -79,6 +126,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
   }
+
+  /* ──────────── Process Received Data ──────────── */
+  void _processReceivedData(String data) {
+    try {
+      // Get the HealthData provider and update it
+      final healthData = Provider.of<HealthData>(context, listen: false);
+      healthData.parseBluetoothData(data);
+      
+      debugPrint('📥 Settings: Health data updated from Bluetooth');
+    } catch (e) {
+      debugPrint('📥 Settings: Error processing received data: $e');
+    }
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -100,9 +162,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Icons.bluetooth_connected,
                     color: Theme.of(context).colorScheme.secondary,
                   ),
-                  title: Text(_connectedDevice!.platformName.isNotEmpty
-                      ? _connectedDevice!.platformName
-                      : 'Unknown Device'),
+                  title: Text(_connectedDevice!.name ?? 'Unknown Device'),
                   subtitle: Text(
                     AppLocalizations.of(context)!.connected,
                     style: TextStyle(
@@ -137,23 +197,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : AppLocalizations.of(context)!.scan),
                       ),
                     ),
-                    if (_scanResults.isNotEmpty)
+                    if (_devices.isNotEmpty)
                       ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _scanResults.length,
+                        itemCount: _devices.length,
                         itemBuilder: (context, index) {
-                          final result = _scanResults[index];
+                          final device = _devices[index];
                           return ListTile(
                             leading: const Icon(Icons.bluetooth_searching),
                             title: Text(
-                              result.device.platformName.isNotEmpty
-                                  ? result.device.platformName
-                                  : 'Unknown Device',
+                              device.name ?? 'Unknown Device',
                             ),
-                            subtitle: Text(result.device.id.id),
+                            subtitle: Text(device.address),
                             trailing: ElevatedButton(
-                              onPressed: () => _connectToDevice(result.device),
+                              onPressed: () => _connectToDevice(device),
                               child: Text(AppLocalizations.of(context)!.connect),
                             ),
                           );
